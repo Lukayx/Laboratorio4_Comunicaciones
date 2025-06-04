@@ -90,7 +90,7 @@ void loop() {
     uint8_t start_index = buf[3]; // Este byte indica el índice de inicio de los datos
     uint8_t *pixel_data = &buf[4]; // puntero a los 20 bytes de datos
     uint8_t received_checksum = buf[PACKET_SIZE-1];         // Último byte del paquete
-    uint8_t calculated_checksum = calculateChecksum(buf, 24);  // Suma primeros 24 bytes
+    uint8_t calculated_checksum = calculateChecksum(buf, PACKET_SIZE-1);  // Suma primeros 24 bytes
 
 
     // Filtrar por ID Receptor
