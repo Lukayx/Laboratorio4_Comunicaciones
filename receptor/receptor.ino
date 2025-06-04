@@ -11,81 +11,166 @@ pin 11 tierra
 pin 12 5v
 pin 14 Arduino pin digital 2
 pin 15 5v
-
 */
-
 
 #include <VirtualWire.h>
 
+// Definiciones de protocolo
+#define HEADER_BYTE 0xAA
+#define EMITTER_ID 0x01
+#define RECEIVER_ID_1 0x02
+#define RECEIVER_ID_2 0x03 // El ID que nuestro receptor va a filtrar
 
-const uint8_t HEADER_EXPECTED = 0x05; // igual que emisor
-const uint8_t MY_ID = 0x02;
-const uint8_t EXPECTED_EMITTER_ID = 0x01;
-
+// Tamaño de la imagen (32x32 píxeles)
+const int IMAGE_WIDTH = 32;
+const int IMAGE_HEIGHT = 32;
+const int TOTAL_PIXELS = IMAGE_WIDTH * IMAGE_HEIGHT;
+// leds
 const int LED_PIN_BLUE = 12;
 const int LED_PIN_GREEN = 13;
 
-const int TOTAL_PACKETS = 8; // cantidad total de paquetes esperados (debes ajustar según datos enviados)
+
+
+
+// Buffer para almacenar la imagen recibida
+uint8_t received_image[TOTAL_PIXELS];
+
+// Flag para indicar si la imagen completa ha sido recibida
+bool image_received_flag = false;
+
+// Función para calcular el checksum
+uint8_t calculateChecksum(uint8_t *data, uint8_t len) {
+  uint8_t sum = 0;
+  for (int i = 0; i < len; i++) {
+    sum += data[i];
+  }
+  return sum; // Suma módulo 256
+}
+
+const int DATA_BYTES_PER_PACKET = 20;
+const int PACKET_SIZE = 1 + 1 + 1 + DATA_BYTES_PER_PACKET + 1;
 
 void setup() {
-  Serial.begin(9600);
-  vw_set_ptt_inverted(true);
-  vw_setup(2000);
-  vw_set_rx_pin(2);
-  vw_rx_start();
+  Serial.begin(9600); //  <--- CAMBIO AQUÍ: Velocidad del serial a 9600
+  Serial.println("Configurando Recepcion de Imagen...");
+  vw_set_ptt_inverted(true); // Requiere true para el modulo RR-10
+  vw_setup(2000);             // Velocidad de transmisión de 2000 bps (VirtualWire)
+  vw_set_rx_pin(2);           // Pin de recepción (digital pin 2)
+  vw_rx_start();              // Iniciar el receptor VirtualWire
 
-  int* arr;
+  pinMode(LED_PIN_GREEN, OUTPUT); // Configurar el pin 13 (LED incorporado) como salida
+  digitalWrite(LED_PIN_GREEN, LOW); // Asegurarse de que el LED esté apagado al inicio
 
-  pinMode(LED_PIN_BLUE, OUTPUT);
-  pinMode(LED_PIN_GREEN, OUTPUT);
-  digitalWrite(LED_PIN_BLUE, LOW);
-  digitalWrite(LED_PIN_GREEN, LOW);
-
-  Serial.println("Receptor listo");
+  // Inicializar el buffer de la imagen con un valor conocido (e.g., 0)
+  for (int i = 0; i < TOTAL_PIXELS; i++) {
+    received_image[i] = 0;
+  }
 }
-
-uint8_t calculate_checksum(const uint8_t *data, int len) {
-  uint8_t s = 0;
-  for(int i=0; i<len; i++) s += data[i];
-  return s;
-}
-
-int packets_received = 0;
 
 void loop() {
-  uint8_t buf[10];
-  uint8_t buflen = sizeof(buf);
-  if (vw_get_message(buf, &buflen)) {
-    if (buflen == 4) {
-      uint8_t checksum = buf[3];
-      if (calculate_checksum(buf, 3) == checksum) {
-        uint8_t header = (buf[0] >> 5) & 0x07;
-        uint8_t emitter_id = (buf[0] >> 2) & 0x07;
-        uint8_t seq_high = buf[0] & 0x03;
-        uint8_t seq_low = (buf[1] >> 2) & 0x3F;
-        uint8_t sequence_num = (seq_high << 6) | seq_low;
-        uint8_t payload = buf[2];
+  uint8_t buf[VW_MAX_MESSAGE_LEN];
+  uint8_t buflen = VW_MAX_MESSAGE_LEN;
 
-        if (header == HEADER_EXPECTED && emitter_id == EXPECTED_EMITTER_ID) {
-           Serial.println(payload);
-          // Enciende LED azul para paquete válido
-          digitalWrite(LED_PIN_BLUE, HIGH);
-          delay(1);
-          digitalWrite(LED_PIN_BLUE, LOW);
-          
+  if (vw_get_message(buf, &buflen)) { // Si se recibe un mensaje
+    digitalWrite(LED_PIN_GREEN, HIGH); // Encender el LED al recibir un mensaje
 
-          // Cuenta paquetes recibidos
-          packets_received++;
-
-          // Si recibimos el último paquete, enciende LED verde y mantiene
-          if (packets_received >= TOTAL_PACKETS) {
-            digitalWrite(LED_PIN_GREEN, HIGH);
-            delay(100);
-            digitalWrite(LED_PIN_GREEN, LOW);
-            delay(100);
-          }
-
-        }
+    // Verificar la longitud del paquete
+    if (buflen != PACKET_SIZE) {
+      Serial.println("ERROR: Tamano de paquete invalido.");
+      Serial.print(PACKET_SIZE);
+      Serial.print(", recibido ");
+      Serial.println(buflen);
+      digitalWrite(LED_PIN_GREEN, LOW);
+      return;
     }
-  }}
- }
+
+    // Extraer campos del paquete
+    uint8_t header = buf[0];
+    uint8_t emitter_id = buf[1];
+    uint8_t receiver_id = buf[2];
+    uint8_t *pixel_data = &buf[3]; // puntero a los 20 bytes de datos
+    uint8_t received_checksum = buf[23];         // Último byte del paquete
+    uint8_t calculated_checksum = calculateChecksum(buf, 23);  // Suma primeros 23 bytes
+
+
+    // Filtrar por ID Receptor
+    if (receiver_id != RECEIVER_ID_2) {
+      // Serial.print("Paquete filtrado: ID Receptor (0x");
+      // Serial.print(receiver_id, HEX);
+      // Serial.println(") no coincide con el esperado (0x03).");
+      digitalWrite(13, LOW);
+      return;
+    }
+
+    // Validar Cabecera
+    if (header != HEADER_BYTE) {
+      Serial.println("ERROR: Cabecera invalida.");
+      digitalWrite(13, LOW);
+      return;
+    }
+
+    // Validar Checksum
+    if (received_checksum != calculated_checksum) {
+      Serial.println("ERROR: Checksum invalido. Paquete corrupto.");
+      // Serial.print("  Recibido: 0x");
+      // Serial.print(received_checksum, HEX);
+      // Serial.print(", Calculado: 0x");
+      // Serial.println(calculated_checksum, HEX);
+      digitalWrite(13, LOW);
+      return;
+    }
+
+    // Si todas las validaciones son correctas, el paquete es válido
+    // Serial.println("Paquete valido recibido."); // Descomentar para depuración
+    // Serial.print("  Header: 0x"); Serial.print(header, HEX); // Descomentar para depuración
+    // Serial.print(", Emisor: 0x"); Serial.print(emitter_id, HEX); // Descomentar para depuración
+    // Serial.print(", Receptor: 0x"); Serial.print(receiver_id, HEX); // Descomentar para depuración
+    // Serial.print(", Pixeles: 0x"); Serial.print(pixel_data[0], HEX); // Descomentar para depuración
+    // Serial.print(" 0x"); Serial.print(pixel_data[1], HEX); // Descomentar para depuración
+    // Serial.print(" 0x"); Serial.print(pixel_data[2], HEX); // Descomentar para depuración
+    // Serial.print(", Checksum: 0x"); Serial.println(received_checksum, HEX); // Descomentar para depuración
+
+    static int current_pixel_index = 0; // static para mantener el valor entre llamadas a loop
+
+    if (!image_received_flag) {
+      int remaining_pixels = TOTAL_PIXELS - current_pixel_index;
+      int bytes_to_copy = (remaining_pixels >= DATA_BYTES_PER_PACKET) ? DATA_BYTES_PER_PACKET : remaining_pixels;
+
+      for (int i = 0; i < bytes_to_copy; i++) {
+        received_image[current_pixel_index + i] = pixel_data[i];
+      }
+      current_pixel_index += bytes_to_copy;
+
+      if (current_pixel_index >= TOTAL_PIXELS) {
+        digitalWrite(LED_PIN_BLUE,HIGH);
+        Serial.println("\n--- IMAGEN COMPLETA RECIBIDA ---");
+        Serial.print("DATA: ");        
+        Serial.print("'");
+        for (int i = 0; i < TOTAL_PIXELS; i++) {
+          Serial.print(received_image[i]);
+          if (i < TOTAL_PIXELS - 1 ){
+            Serial.print(",");
+          }
+        }
+        Serial.print("'");
+        Serial.println("");
+
+        Serial.print("WIDTH:"); Serial.println(IMAGE_WIDTH);
+        Serial.print("HEIGHT:"); Serial.println(IMAGE_HEIGHT);
+        Serial.println("--- FIN DE EXPORTACION ---");
+
+        current_pixel_index = 0;
+        for (int i = 0; i < TOTAL_PIXELS; i++) received_image[i] = 0;
+        image_received_flag = true;
+        
+      }
+      delay(50);
+      digitalWrite(LED_PIN_BLUE,LOW);
+    }
+
+    delay(50);
+    digitalWrite(LED_PIN_GREEN, LOW);
+  } else {
+    if (image_received_flag) image_received_flag = false;
+  }
+}
