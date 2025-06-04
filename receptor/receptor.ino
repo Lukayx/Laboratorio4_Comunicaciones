@@ -29,9 +29,6 @@ const int TOTAL_PIXELS = IMAGE_WIDTH * IMAGE_HEIGHT;
 const int LED_PIN_BLUE = 12;
 const int LED_PIN_GREEN = 13;
 
-
-
-
 // Buffer para almacenar la imagen recibida
 uint8_t received_image[TOTAL_PIXELS];
 
@@ -48,7 +45,8 @@ uint8_t calculateChecksum(uint8_t *data, uint8_t len) {
 }
 
 const int DATA_BYTES_PER_PACKET = 20;
-const int PACKET_SIZE = 1 + 1 + 1 + DATA_BYTES_PER_PACKET + 1;
+const int PACKET_SIZE = 1 + 1 + 1 + 1 + DATA_BYTES_PER_PACKET + 1;
+// 25 bytes => Header + Emisor + Receptor + Start Index + Data + Checksum
 
 void setup() {
   Serial.begin(9600); //  <--- CAMBIO AQUÍ: Velocidad del serial a 9600
@@ -76,10 +74,11 @@ void loop() {
 
     // Verificar la longitud del paquete
     if (buflen != PACKET_SIZE) {
-      Serial.println("ERROR: Tamano de paquete invalido.");
+      Serial.print("ERROR: tamaño de paquete incorrecto.");
       Serial.print(PACKET_SIZE);
       Serial.print(", recibido ");
-      Serial.println(buflen);
+      Serial.print(buflen);
+      Serial.println("");
       digitalWrite(LED_PIN_GREEN, LOW);
       return;
     }
@@ -88,15 +87,17 @@ void loop() {
     uint8_t header = buf[0];
     uint8_t emitter_id = buf[1];
     uint8_t receiver_id = buf[2];
-    uint8_t *pixel_data = &buf[3]; // puntero a los 20 bytes de datos
-    uint8_t received_checksum = buf[23];         // Último byte del paquete
-    uint8_t calculated_checksum = calculateChecksum(buf, 23);  // Suma primeros 23 bytes
+    uint8_t start_index = buf[3]; // Este byte indica el índice de inicio de los datos
+    uint8_t *pixel_data = &buf[4]; // puntero a los 20 bytes de datos
+    uint8_t received_checksum = buf[PACKET_SIZE-1];         // Último byte del paquete
+    uint8_t calculated_checksum = calculateChecksum(buf, 24);  // Suma primeros 24 bytes
 
 
     // Filtrar por ID Receptor
     if (receiver_id != RECEIVER_ID_2) {
-      // Serial.print("Paquete filtrado: ID Receptor (0x");
-      // Serial.print(receiver_id, HEX);
+      Serial.print("Paquete filtrado: ID Receptor (0x");
+      Serial.print(receiver_id, HEX);
+      Serial.println("");
       // Serial.println(") no coincide con el esperado (0x03).");
       digitalWrite(13, LOW);
       return;
@@ -126,30 +127,39 @@ void loop() {
     // Serial.print(", Emisor: 0x"); Serial.print(emitter_id, HEX); // Descomentar para depuración
     // Serial.print(", Receptor: 0x"); Serial.print(receiver_id, HEX); // Descomentar para depuración
     // Serial.print(", Pixeles: 0x"); Serial.print(pixel_data[0], HEX); // Descomentar para depuración
+    // Serial.print(", Start Index: 0x"); Serial.print(start_index, HEX); // Descomentar para depuración
     // Serial.print(" 0x"); Serial.print(pixel_data[1], HEX); // Descomentar para depuración
     // Serial.print(" 0x"); Serial.print(pixel_data[2], HEX); // Descomentar para depuración
     // Serial.print(", Checksum: 0x"); Serial.println(received_checksum, HEX); // Descomentar para depuración
 
-    static int current_pixel_index = 0; // static para mantener el valor entre llamadas a loop
-
     if (!image_received_flag) {
-      int remaining_pixels = TOTAL_PIXELS - current_pixel_index;
+      // Usar start_index como el índice de inicio real para copiar los datos recibidos
+      int start = start_index;
+      int remaining_pixels = TOTAL_PIXELS - start;
       int bytes_to_copy = (remaining_pixels >= DATA_BYTES_PER_PACKET) ? DATA_BYTES_PER_PACKET : remaining_pixels;
 
       for (int i = 0; i < bytes_to_copy; i++) {
-        received_image[current_pixel_index + i] = pixel_data[i];
+        received_image[start + i] = pixel_data[i];
       }
-      current_pixel_index += bytes_to_copy;
 
-      if (current_pixel_index >= TOTAL_PIXELS) {
-        digitalWrite(LED_PIN_BLUE,HIGH);
+      // Verificar si la imagen está completa (todos los píxeles han sido recibidos)
+      bool complete = true;
+      for (int i = 0; i < TOTAL_PIXELS; i++) {
+        if (received_image[i] == 0) {
+          complete = false;
+          break;
+        }
+      }
+
+      if (complete) {
+        digitalWrite(LED_PIN_BLUE, HIGH);
         Serial.println("\n--- IMAGEN COMPLETA RECIBIDA ---");
-        Serial.print("DATA: ");        
+        Serial.print("DATA: ");
         Serial.print("'");
         for (int i = 0; i < TOTAL_PIXELS; i++) {
           Serial.print(received_image[i]);
-          if (i < TOTAL_PIXELS - 1 ){
-            Serial.print(",");
+          if (i < TOTAL_PIXELS - 1) {
+        Serial.print(",");
           }
         }
         Serial.print("'");
@@ -159,10 +169,9 @@ void loop() {
         Serial.print("HEIGHT:"); Serial.println(IMAGE_HEIGHT);
         Serial.println("--- FIN DE EXPORTACION ---");
 
-        current_pixel_index = 0;
+        // Limpiar el buffer para la próxima imagen
         for (int i = 0; i < TOTAL_PIXELS; i++) received_image[i] = 0;
         image_received_flag = true;
-        
       }
       delay(50);
       digitalWrite(LED_PIN_BLUE,LOW);
