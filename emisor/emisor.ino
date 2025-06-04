@@ -104,7 +104,8 @@ void loop() {
     packet[0] = HEADER_BYTE;
     packet[1] = EMITTER_ID;
     packet[2] = RECEIVER_ID_2;
-    packet[3] = start_index = pkt * DATA_BYTES_PER_PACKET;
+    int start_index = pkt * DATA_BYTES_PER_PACKET;
+    packet[3] = start_index;
 
     // Copiar los 20 bytes (o menos si es el último paquete)
     for (int i = 0; i < DATA_BYTES_PER_PACKET; i++) {
