@@ -81,9 +81,17 @@ const uint8_t data_to_send[TOTAL_PIXELS] = {
 };
 
 uint8_t calculateChecksum(uint8_t *data, uint8_t len) {
-  uint8_t sum = 0;
-  for (int i = 0; i < len; i++) sum += data[i];
-  return sum;
+  uint8_t crc = 0x00;
+  for (uint8_t i = 0; i < len; i++) {
+    crc ^= data[i];
+    for (uint8_t j = 0; j < 8; j++) {
+      if (crc & 0x80)
+        crc = (crc << 1) ^ 0x07; // Polynomial x^8 + x^2 + x + 1 (0x07)
+      else
+        crc <<= 1;
+    }
+  }
+  return crc;
 }
 
 void setup() {
@@ -117,7 +125,7 @@ void loop() {
       }
     }
 
-    // Calcular checksum sobre los primeros 23 bytes
+    // Calcular checksum sobre los primeros 24 bytes
     packet[PACKET_SIZE - 1] = calculateChecksum(packet, PACKET_SIZE - 1);
 
     vw_send(packet, PACKET_SIZE);
@@ -127,10 +135,9 @@ void loop() {
     Serial.print(pkt + 1);
     Serial.print("/");
     Serial.print(packets_to_send);
-    Serial.print(" pixeles ");
+    Serial.print("| squence: ");
     Serial.print(start_index);
-    Serial.print(" - ");
-    Serial.print(min(start_index + DATA_BYTES_PER_PACKET - 1, total_pixels - 1));
+  
     Serial.print(" | Checksum: 0x");
     Serial.println(packet[PACKET_SIZE - 1], HEX);
 

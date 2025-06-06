@@ -35,18 +35,38 @@ uint8_t received_image[TOTAL_PIXELS];
 // Flag para indicar si la imagen completa ha sido recibida
 bool image_received_flag = false;
 
+int total_received_seq = 0; // Contador de paquetes recibidos
+
 // Función para calcular el checksum
+// CRC-8 (polinomio x^8 + x^2 + x + 1, 0x07)
 uint8_t calculateChecksum(uint8_t *data, uint8_t len) {
-  uint8_t sum = 0;
-  for (int i = 0; i < len; i++) {
-    sum += data[i];
+  uint8_t crc = 0x00;
+  for (uint8_t i = 0; i < len; i++) {
+    crc ^= data[i];
+    for (uint8_t j = 0; j < 8; j++) {
+      if (crc & 0x80)
+        crc = (crc << 1) ^ 0x07;
+      else
+        crc <<= 1;
+    }
   }
-  return sum; // Suma módulo 256
+  return crc;
 }
 
 const int DATA_BYTES_PER_PACKET = 20;
 const int PACKET_SIZE = 1 + 1 + 1 + 1 + DATA_BYTES_PER_PACKET + 1;
 // 25 bytes => Header + Emisor + Receptor + Start Index + Data + Checksum
+
+
+
+bool is_complete(uint8_t *received_image) {
+  for (int i = 0; i < TOTAL_PIXELS; i++) {
+    if (received_image[i] == (uint8_t)-1) {
+      return false; // Si encontramos un valor -1, significa que no se ha recibido la imagen completa
+    }
+  }
+  return true; // Si todos los píxeles están completos, la imagen está completa
+}
 
 void setup() {
   Serial.begin(9600); //  <--- CAMBIO AQUÍ: Velocidad del serial a 9600
@@ -61,7 +81,7 @@ void setup() {
 
   // Inicializar el buffer de la imagen con un valor conocido (e.g., 0)
   for (int i = 0; i < TOTAL_PIXELS; i++) {
-    received_image[i] = 0;
+    received_image[i] = (uint8_t)-1;
   }
 }
 
@@ -89,8 +109,8 @@ void loop() {
     uint8_t receiver_id = buf[2];
     uint8_t start_index = buf[3]; // Este byte indica el índice de inicio de los datos
     uint8_t *pixel_data = &buf[4]; // puntero a los 20 bytes de datos
-    uint8_t received_checksum = buf[PACKET_SIZE-1];         // Último byte del paquete
-    uint8_t calculated_checksum = calculateChecksum(buf, PACKET_SIZE-1);  // Suma primeros 24 bytes
+    uint8_t received_checksum = buf[PACKET_SIZE - 1]; // Último byte es el checksum
+    uint8_t calculated_checksum = calculateChecksum(buf, PACKET_SIZE - 1); // Calcular checksum de los primeros 24 bytes
 
 
     // Filtrar por ID Receptor
@@ -142,16 +162,7 @@ void loop() {
         received_image[start + i] = pixel_data[i];
       }
 
-      // Verificar si la imagen está completa (todos los píxeles han sido recibidos)
-      bool complete = true;
-      for (int i = 0; i < TOTAL_PIXELS; i++) {
-        if (received_image[i] == 0) {
-          complete = false;
-          break;
-        }
-      }
-
-      if (complete) {
+      if is_complete(received_image) {
         digitalWrite(LED_PIN_BLUE, HIGH);
         Serial.println("\n--- IMAGEN COMPLETA RECIBIDA ---");
         Serial.print("DATA: ");
@@ -159,18 +170,15 @@ void loop() {
         for (int i = 0; i < TOTAL_PIXELS; i++) {
           Serial.print(received_image[i]);
           if (i < TOTAL_PIXELS - 1) {
-        Serial.print(",");
+            Serial.print(",");
           }
         }
         Serial.print("'");
         Serial.println("");
-
-        Serial.print("WIDTH:"); Serial.println(IMAGE_WIDTH);
-        Serial.print("HEIGHT:"); Serial.println(IMAGE_HEIGHT);
         Serial.println("--- FIN DE EXPORTACION ---");
 
         // Limpiar el buffer para la próxima imagen
-        for (int i = 0; i < TOTAL_PIXELS; i++) received_image[i] = 0;
+        for (int i = 0; i < TOTAL_PIXELS; i++) received_image[i] = -1;
         image_received_flag = true;
       }
       delay(50);
