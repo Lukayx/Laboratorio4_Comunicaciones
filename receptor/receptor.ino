@@ -53,7 +53,7 @@ uint8_t calculateChecksum(uint8_t *data, uint8_t len) {
 }
 
 const int DATA_BYTES_PER_PACKET = 20;
-const int PACKET_SIZE = 1 + 1 + 1 + 1 + DATA_BYTES_PER_PACKET + 1;
+const int PACKET_SIZE = 1 + 1 + 1 + 1 + 1 + DATA_BYTES_PER_PACKET + 1;
 // 25 bytes => Header + Emisor + Receptor + Start Index + Data + Checksum
 
 
@@ -103,8 +103,10 @@ void loop() {
     uint8_t header = buf[0];
     uint8_t emitter_id = buf[1];
     uint8_t receiver_id = buf[2];
-    uint8_t start_index = buf[3]; // Este byte indica el índice de inicio de los datos
-    uint8_t *pixel_data = &buf[4]; // puntero a los 20 bytes de datos
+    uint8_t start_index_high = buf[3]; // Este byte indica el índice de inicio de los datos
+    uint8_t start_index_low = buf[4];
+    int start_index = (start_index_high << 8) | start_index_low; // Combinar los dos bytes para obtener el índice de inicio
+    uint8_t *pixel_data = &buf[5]; // puntero a los 20 bytes de datos
     uint8_t received_checksum = buf[PACKET_SIZE - 1]; // Último byte es el checksum
     uint8_t calculated_checksum = calculateChecksum(buf, PACKET_SIZE - 1); // Calcular checksum de los primeros 24 bytes
 

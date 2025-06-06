@@ -10,8 +10,8 @@ const int IMAGE_HEIGHT = 32;
 const int TOTAL_PIXELS = IMAGE_WIDTH * IMAGE_HEIGHT;
 
 const int DATA_BYTES_PER_PACKET = 20; // Ahora enviamos 20 bytes por paquete
-const int PACKET_SIZE = 1 + 1 + 1 + 1 + DATA_BYTES_PER_PACKET + 1; 
-// 25 bytes => Header + Emisor + Receptor + Start Index + Data + Checksum
+const int PACKET_SIZE = 1 + 1 + 1 + 1 + + DATA_BYTES_PER_PACKET + 1; 
+// 25 bytes => Header + (1) Emisor + (1) Receptor + (2) Start Index + (20) Data + Checksum
 
 const uint8_t data_to_send[TOTAL_PIXELS] = {
 135, 135, 135, 135, 135, 134, 134, 134, 135, 138, 135, 135, 135, 135, 135, 135,
@@ -113,19 +113,20 @@ void loop() {
     packet[1] = EMITTER_ID;
     packet[2] = RECEIVER_ID_2;
     int start_index = pkt * DATA_BYTES_PER_PACKET;
-    packet[3] = start_index;
+    packet[3] = (start_index >>8) & 0xFF; // Índice de inicio alto
+    packet[4] = start_index & 0xFF; // Índice de inicio bajo
 
     // Copiar los 20 bytes (o menos si es el último paquete)
     for (int i = 0; i < DATA_BYTES_PER_PACKET; i++) {
       int data_index = start_index + i;
       if (data_index < total_pixels) {
-        packet[4 + i] = data_to_send[data_index];
+        packet[5 + i] = data_to_send[data_index];
       } else {
-        packet[4 + i] = 0; // relleno con 0 si pasamos el total
+        packet[5 + i] = 0; // relleno con 0 si pasamos el total
       }
     }
 
-    // Calcular checksum sobre los primeros 24 bytes
+    // Calcular checksum sobre los primeros 25 bytes
     packet[PACKET_SIZE - 1] = calculateChecksum(packet, PACKET_SIZE - 1);
 
     vw_send(packet, PACKET_SIZE);
