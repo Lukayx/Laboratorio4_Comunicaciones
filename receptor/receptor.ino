@@ -31,11 +31,10 @@ const int LED_PIN_GREEN = 13;
 
 // Buffer para almacenar la imagen recibida
 uint8_t received_image[TOTAL_PIXELS];
+bool pixels_received[TOTAL_PIXELS] = {false}; // Array para verificar si un pixel ha sido recibido
 
 // Flag para indicar si la imagen completa ha sido recibida
 bool image_received_flag = false;
-
-int total_received_seq = 0; // Contador de paquetes recibidos
 
 // Función para calcular el checksum
 // CRC-8 (polinomio x^8 + x^2 + x + 1, 0x07)
@@ -59,13 +58,14 @@ const int PACKET_SIZE = 1 + 1 + 1 + 1 + DATA_BYTES_PER_PACKET + 1;
 
 
 
-bool is_complete(uint8_t *received_image) {
+bool is_complete(uint8_t *pixels_received) {
+  // Verifica si todos los píxeles han sido recibidos
   for (int i = 0; i < TOTAL_PIXELS; i++) {
-    if (received_image[i] == (uint8_t)-1) {
-      return false; // Si encontramos un valor -1, significa que no se ha recibido la imagen completa
+    if (pixels_received[i] == false) {
+      return false; // Si algún pixel no ha sido recibido, retorna false
     }
   }
-  return true; // Si todos los píxeles están completos, la imagen está completa
+  return true; // Todos los píxeles han sido recibidos
 }
 
 void setup() {
@@ -79,10 +79,6 @@ void setup() {
   pinMode(LED_PIN_GREEN, OUTPUT); // Configurar el pin 13 (LED incorporado) como salida
   digitalWrite(LED_PIN_GREEN, LOW); // Asegurarse de que el LED esté apagado al inicio
 
-  // Inicializar el buffer de la imagen con un valor conocido (e.g., 0)
-  for (int i = 0; i < TOTAL_PIXELS; i++) {
-    received_image[i] = (uint8_t)-1;
-  }
 }
 
 void loop() {
@@ -160,9 +156,10 @@ void loop() {
 
       for (int i = 0; i < bytes_to_copy; i++) {
         received_image[start + i] = pixel_data[i];
+        pixels_received[start + i] = true; // Marcar el pixel como recibido
       }
 
-      if is_complete(received_image) {
+      if (is_complete(pixels_received) ){
         digitalWrite(LED_PIN_BLUE, HIGH);
         Serial.println("\n--- IMAGEN COMPLETA RECIBIDA ---");
         Serial.print("DATA: ");
@@ -178,7 +175,10 @@ void loop() {
         Serial.println("--- FIN DE EXPORTACION ---");
 
         // Limpiar el buffer para la próxima imagen
-        for (int i = 0; i < TOTAL_PIXELS; i++) received_image[i] = -1;
+        for (int i = 0; i < TOTAL_PIXELS; i++) {
+          pixels_received[i] = false;
+        }
+        
         image_received_flag = true;
       }
       delay(50);
